@@ -1,17 +1,16 @@
-#!/usr/bin/python
-
 import twisted
 from twisted.internet import task, defer
 
 
-
 class BackupManager(object):
     """
-    I represent a backup scheduler. My friend... a filesystem observer
-    tells me when my observed directory tree gets changed and therefore
-    needs a backup by calling my `scheduleBackup` method.
+    I execute backup commands and manage the backup schedule.
 
-    I promise to perform a backup sometime after `scheduleBackup` is called.
+    The schedule changes dynamically depending on the timing of the observed writes.
+    My associate... a filesystem observer tells me when my backup source directory tree
+    gets changed and therefore needs a backup by calling my `scheduleBackup` method.
+
+    I promise to perform a backup sometime after my `scheduleBackup` method is called.
     I will try not to perform a backup in the middle of many observed writes.
 
     Although I am a class written in a generic way I am really meant
@@ -20,7 +19,6 @@ class BackupManager(object):
     This should probably happen in the tahoe gateway node... however this
     class *could* be used by a standalone python app that for instance
     schedules the `rsync` command to run.
-
     """
     def __init__(self, reactor=None, soonDuration=None, laterDuration=None, soonCommand=None, laterCommand=None):
         """
@@ -35,6 +33,13 @@ class BackupManager(object):
         :param laterDuration:
             The number of seconds after the initial observed write when a backup is guaranteed.
             Cancelled if a "soon backup" is performed because of a later observed write.
+
+        :param soonCommand:
+            The backup command to execute when our "soon" schedule executes.
+
+        :param laterCommand:
+            The backup command to execute when our "later" schedule executes.
+            This can of course be an identical value to "soonCommand".
         """
         self.reactor = reactor
         self.soonDuration = soonDuration
@@ -45,14 +50,24 @@ class BackupManager(object):
         self.backupSoon = None
         self.backupLater = None
 
-    def trapCancel(self, fail):
+    def trapCancel(self, failure):
         """
-        Hello, I sit on the deferred's errback and trap the deferred's cancellation
-        so that an error is not surfaced to the user.
+        :param failure:
+            The deferred's errback failure
+
+        I sit on the deferred's errback and trap the deferred's cancellation error
+        so that it isn't surfaced to the user.
         """
         fail.trap(defer.CancelledError)
 
     def scheduleBackup(self):
+        """
+        My "filesystem observer" associate object must call this method to
+        notify me that my backup source directory tree has been modified.
+
+        I promise to perform a backup in the future...
+        no later than laterDuration... but possibly as soon as soonDuration.
+        """
         if self.backupLater is None:
             self.backupLater = task.deferLater(self.reactor, self.laterDuration, self.laterBackup)
             self.backupLater.addErrback(self.trapCancel)
@@ -62,6 +77,10 @@ class BackupManager(object):
         self.backupSoon.addErrback(self.trapCancel)
 
     def soonBackup(self):
+        """
+        I will execute the "soon backup command" after cancelling
+        the "later backup".
+        """
         assert self.backupLater is not None
 
         self.backupLater.cancel()
@@ -71,6 +90,10 @@ class BackupManager(object):
         self.backupSoon = None
 
     def laterBackup(self):
+        """
+        I will execute the "later backup command" after cancelling
+        the "soon backup".
+        """
         assert self.backupSoon is not None
 
         self.backupSoon.cancel()
