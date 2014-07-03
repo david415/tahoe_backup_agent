@@ -1,4 +1,3 @@
-import twisted
 from twisted.internet import task, defer
 
 
@@ -58,7 +57,7 @@ class BackupManager(object):
         I sit on the deferred's errback and trap the deferred's cancellation error
         so that it isn't surfaced to the user.
         """
-        fail.trap(defer.CancelledError)
+        failure.trap(defer.CancelledError)
 
     def scheduleBackup(self):
         """
